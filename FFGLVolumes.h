@@ -46,9 +46,13 @@ private:
 	float fScaleValue;
 	float fDistance;
 	float fPlanesCount;
+	float fIsPerspective;
+
+	float fAngle;
+
 	GLuint iPlanesCount;
 
-	bool isListRecalculationNeeded;
+	
 	
 	GLuint iVertexArrayID;
 	GLuint iTexcoordArrayID;
@@ -64,6 +68,16 @@ private:
 	
 	GLuint iList;
 	void CreateArrayData(FFGLTexCoords maxCoords);
+
+	GLuint vboId = 0;                   // ID of VBO for vertex arrays
+
+	GLuint vboId1 = 0;
+	
+	
+	bool isGeometryRebuildNeeded;
+
+
+
 };
 
 

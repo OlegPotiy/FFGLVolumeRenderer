@@ -1,31 +1,34 @@
 #include "FFGL/FFGL.h"
 #include "FFGL/FFGLLib.h"
 #include "FFGLVolumes.h"
+#include <gl\GLU.h>
+//#define USE_VBO
 
 // Parameters
-#define FFPARAM_VALUE1_SCALE	(0)
-#define FFPARAM_VALUE2_RX		(1)
-#define FFPARAM_VALUE3_RY		(2)
-#define FFPARAM_VALUE4_DISTANCE	(3)
-#define FFPARAM_VALUE5_PCOUNT	(4)
-
+#define FFPARAM_VALUE1_IS_PERSPECTIVE (0)
+#define FFPARAM_VALUE2_SCALE	(1)
+#define FFPARAM_VALUE3_RX		(2)
+#define FFPARAM_VALUE4_RY		(3)
+#define FFPARAM_VALUE5_DISTANCE	(4)
+#define FFPARAM_VALUE6_PCOUNT	(5)
+#define FFPARAM_VALUE7_FOVY		(6)
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 //  Plugin information
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 static CFFGLPluginInfo PluginInfo ( 
-								   FFGLVolumeRendering::CreateInstance,	// Create method
-								   "VLRN",								// Plugin unique ID
-								   "FFGLVolume",     // Plugin name											
-								   1,						   			// API major version number 											
-								   000,								  // API minor version number	
-								   1,										// Plugin major version number
-								   000,									// Plugin minor version number
-								   FF_EFFECT,						// Plugin type
-								   "FFGL Volume rendering plug",	// Plugin description
-								   "by Oleg Potiy (vj Dornier Wal)" // About
-								   );
+	FFGLVolumeRendering::CreateInstance,	// Create method
+	"VOLR",								// Plugin unique ID
+	"FFGLVolume",     // Plugin name											
+	1,						   			// API major version number 											
+	000,								  // API minor version number	
+	1,										// Plugin major version number
+	000,									// Plugin minor version number
+	FF_EFFECT,						// Plugin type
+	"FFGL Volume rendering plug",	// Plugin description
+	"by Oleg Potiy" // About
+	);
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -45,19 +48,30 @@ FFGLVolumeRendering::FFGLVolumeRendering():CFreeFrameGLPlugin()
 
 	this->fDistance = 1.0f;
 	this->fPlanesCount = 1.0f;
+	this->iPlanesCount = 100.0f * this->fPlanesCount;
 
-	SetParamInfo( FFPARAM_VALUE1_SCALE , "Scale", FF_TYPE_STANDARD, this->fScaleValue);
-	SetParamInfo( FFPARAM_VALUE2_RX  , "X angle", FF_TYPE_STANDARD, this->fXAngle);
-	SetParamInfo( FFPARAM_VALUE3_RY  , "Y angle", FF_TYPE_STANDARD, this->fYAngle);
+	this->fAngle = 0.5f;
+	this->fScaleValue = 1.0f;
 
-	SetParamInfo( FFPARAM_VALUE4_DISTANCE, "Volume level", FF_TYPE_STANDARD, this->fDistance);
-	SetParamInfo( FFPARAM_VALUE5_PCOUNT  , "Planes count", FF_TYPE_STANDARD, this->fPlanesCount);
+	this->fIsPerspective = 0.0f;
+
+	SetParamInfo( FFPARAM_VALUE1_IS_PERSPECTIVE, "Perspective(?)", FF_TYPE_BOOLEAN, this->fIsPerspective);
 	
-	this->isListRecalculationNeeded = true;
+	SetParamInfo( FFPARAM_VALUE2_SCALE , "Scale", FF_TYPE_STANDARD, this->fScaleValue);
+	
+	SetParamInfo( FFPARAM_VALUE3_RX  , "X angle", FF_TYPE_STANDARD, this->fXAngle);
+	SetParamInfo( FFPARAM_VALUE4_RY  , "Y angle", FF_TYPE_STANDARD, this->fYAngle);
+
+	SetParamInfo( FFPARAM_VALUE5_DISTANCE, "Volume level", FF_TYPE_STANDARD, this->fDistance);
+	SetParamInfo( FFPARAM_VALUE6_PCOUNT  , "Planes count", FF_TYPE_STANDARD, this->fPlanesCount);
+
+	SetParamInfo(FFPARAM_VALUE7_FOVY, "FOVY", FF_TYPE_STANDARD, this->fAngle);
+
+	this->isGeometryRebuildNeeded = true;
 
 	this->VertexData = NULL;
 	this->TexcoordData = NULL;
-	
+
 }
 
 FFGLVolumeRendering::~FFGLVolumeRendering()
@@ -69,15 +83,21 @@ FFGLVolumeRendering::~FFGLVolumeRendering()
 
 DWORD FFGLVolumeRendering::InitGL(const FFGLViewportStruct *vp)
 {
-	
+#ifndef  USE_VBO
+	return FF_SUCCESS;
+#else
 	m_extensions.Initialize();
 	bool lIsExtSupported = m_extensions.isExtensionSupported("GL_ARB_vertex_buffer_object");
-	return FF_SUCCESS;
+
+	m_extensions.glGenBuffersARB(1, &(this->vboId));	
+	m_extensions.glBindBufferARB(GL_ARRAY_BUFFER_ARB, 0);
+
+	return lIsExtSupported ? FF_SUCCESS : FF_FAIL;
+#endif
 }
 
 DWORD FFGLVolumeRendering::DeInitGL()
 {
-	
 	return FF_SUCCESS;
 } 
 
@@ -94,33 +114,46 @@ DWORD FFGLVolumeRendering::ProcessOpenGL(ProcessOpenGLStruct *pGL)
 		return FF_FAIL;
 
 	
-	
+
 
 	FFGLTextureStruct &Texture = *(pGL->inputTextures[0]);
 
 	//enable texturemapping
 	glEnable(GL_TEXTURE_2D);
 
-
 	//bind the texture handle
 	glBindTexture(GL_TEXTURE_2D, Texture.Handle);
-	glEnable(GL_BLEND);
+	glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
+
 
 	
+
 	//get the max s,t that correspond to the 
 	//width,height of the used portion of the allocated texture space
 	FFGLTexCoords maxCoords = GetMaxGLTexCoords(Texture);
 
-	
+	glEnable(GL_BLEND);
 	glBlendFunc(GL_SRC_COLOR, GL_ONE_MINUS_SRC_COLOR);
 
 
 	glMatrixMode(GL_PROJECTION);		
+	
 	// Saving the projection matrix
 	glPushMatrix();
+	
+	glLoadIdentity();
+
 	// Setting parallel projection 
-	glOrtho(-1,1,-1,1,-2,2);
-	//glLoadIdentity();
+	if (this->fIsPerspective == 0) 
+		glOrtho(-1,1,-1,1,-2,2);
+	else
+	{
+		gluPerspective( 90.0*(this->fAngle + 0.5) , 1, 0.1, 100.0);
+		gluLookAt( 0, 0, 1.5, 0, 0, 0, 0, 1, 0 );
+	}
+
+	
 
 	float xRotationAngle = (this->fXAngle - 0.5) * 180;
 	float yRotationAngle = (this->fYAngle - 0.5) * 180;
@@ -134,19 +167,21 @@ DWORD FFGLVolumeRendering::ProcessOpenGL(ProcessOpenGLStruct *pGL)
 	glMatrixMode(GL_MODELVIEW);
 	glLoadIdentity();
 
-	const int PlanesAmount = 100.0f * this->fPlanesCount;	
+	
 
 
-	if (this->isListRecalculationNeeded)
+#ifndef  USE_VBO
+
+	if (this->isGeometryRebuildNeeded)
 	{	
-		this->isListRecalculationNeeded = false;
+		this->isGeometryRebuildNeeded = false;
 		this->iList = glGenLists(1);
 		glNewList( this->iList, GL_COMPILE);
-		if (PlanesAmount > 1)
+		if (this->iPlanesCount > 1)
 		{			
-			double dZStep = (double)this->fDistance/(double)(PlanesAmount - 1);
+			double dZStep = (double)this->fDistance/(double)(this->iPlanesCount - 1);
 			glBegin(GL_QUADS);
-			for (int i=0 ; i < PlanesAmount ; i++)
+			for (int i=0 ; i < this->iPlanesCount ; i++)
 			{
 				double ZCoord = -(this->fDistance/2) + dZStep * (double)i;        
 
@@ -193,55 +228,52 @@ DWORD FFGLVolumeRendering::ProcessOpenGL(ProcessOpenGLStruct *pGL)
 		};
 		glEndList();
 	}
-	
+
 	glCallList(this->iList);
-	
+#else
+	int vertextDataSize = 0;
+	int texcoordDataSize = 0;
 
+	if (this->isGeometryRebuildNeeded)
+	{
+		this->isGeometryRebuildNeeded = false;
 
-	/*
-	if (this->isListRecalculationNeeded)
-	{	
 		this->CreateArrayData(maxCoords);
-		this->isListRecalculationNeeded = false;
 
-		glEnableClientState(GL_VERTEX_ARRAY);
-        glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+		vertextDataSize = 4 * this->iPlanesCount * sizeof(GLVertexTriplet);
+		texcoordDataSize = 4 * this->iPlanesCount * sizeof(GLTexcoords);
 
-		
-		m_extensions.glGenBuffersARB ( 1, &this->iVertexArrayID );
-		m_extensions.glBindBufferARB ( GL_ARRAY_BUFFER_ARB, this->iVertexArrayID );
-		m_extensions.glBufferDataARB ( GL_ARRAY_BUFFER_ARB, 4*sizeof(this->VertexData[0])*this->iPlanesCount , this->VertexData, GL_STATIC_DRAW_ARB );
+		m_extensions.glBindBufferARB(GL_ARRAY_BUFFER_ARB, vboId);
+		m_extensions.glBufferDataARB(GL_ARRAY_BUFFER_ARB, vertextDataSize + texcoordDataSize, 0, GL_STATIC_DRAW_ARB);
+		m_extensions.glBufferSubDataARB(GL_ARRAY_BUFFER_ARB, 0, vertextDataSize, this->VertexData); // copy vertices starting from 0 offest
+		m_extensions.glBufferSubDataARB(GL_ARRAY_BUFFER_ARB, vertextDataSize, texcoordDataSize, this->TexcoordData); // copy texcoords after vertices;
+
+		m_extensions.glBindBufferARB(GL_ARRAY_BUFFER_ARB, 0);
 
 
-		m_extensions.glGenBuffersARB ( 1, &this->iTexcoordArrayID );
-		m_extensions.glBindBufferARB ( GL_ARRAY_BUFFER_ARB, this->iTexcoordArrayID );
-		m_extensions.glBufferDataARB ( GL_ARRAY_BUFFER_ARB, 4*sizeof(this->TexcoordData[0])*this->iPlanesCount, this->TexcoordData, GL_STATIC_DRAW_ARB );
-		
-		this->isListRecalculationNeeded = false;
 	}
 	else
-	{ 
-		
-		m_extensions.glBindBufferARB ( GL_ARRAY_BUFFER_ARB, this->iVertexArrayID );
-		glVertexPointer(3, GL_FLOAT, 0, 0);
+	{
+		m_extensions.glBindBufferARB(GL_ARRAY_BUFFER_ARB, vboId);
 
-		m_extensions.glBindBufferARB ( GL_ARRAY_BUFFER_ARB, this->iTexcoordArrayID);
-		glTexCoordPointer(2,GL_FLOAT, 0, 0);
-			
-
-		// Enable arrays
 		glEnableClientState(GL_VERTEX_ARRAY);
-        glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+		glEnableClientState(GL_TEXTURE_COORD_ARRAY);
 
-		glDrawArrays(GL_QUADS, 0, 4*this->iPlanesCount );
+		vertextDataSize = 4 * this->iPlanesCount * sizeof(GLVertexTriplet);
+		texcoordDataSize = 4 * this->iPlanesCount * sizeof(GLTexcoords);
 
-        // Disable arrays
+		glVertexPointer(3, GL_FLOAT, 0, 0);
+		glTexCoordPointer(2, GL_FLOAT, 0, (void*)(vertextDataSize));
+
+		glDrawArrays(GL_QUADS, 0, this->iPlanesCount*4);
+
 		glDisableClientState(GL_VERTEX_ARRAY);
 		glDisableClientState(GL_TEXTURE_COORD_ARRAY);
-		
 
-		//glCallList(this->iList);
-	};*/
+		m_extensions.glBindBufferARB(GL_ARRAY_BUFFER_ARB, 0);
+	}
+#endif
+
 	
 	glMatrixMode(GL_PROJECTION);
 	//Restoring projection matrix
@@ -253,7 +285,7 @@ DWORD FFGLVolumeRendering::ProcessOpenGL(ProcessOpenGLStruct *pGL)
 	//disable texturemapping
 	glDisable(GL_TEXTURE_2D);
 
-	//disable texturemapping
+	//disable blending
 	glDisable(GL_BLEND);
 
 	//restore default color
@@ -267,19 +299,19 @@ void FFGLVolumeRendering::CreateArrayData(FFGLTexCoords maxCoords)
 
 	if (this->VertexData != NULL) 
 		delete this->VertexData;
-	
+
 	if (this->TexcoordData != NULL) 
 		delete this->TexcoordData;
+
+
 	
-	
-	this->iPlanesCount = 100.0f * this->fPlanesCount;
 
 	this->VertexData = new FFGLVolumeRendering::GLVertexTriplet[4*this->iPlanesCount];
 	this->TexcoordData = new FFGLVolumeRendering::GLTexcoords[4*this->iPlanesCount];
 
 	if (this->iPlanesCount > 1)
 	{			
-		double dZStep = (double)this->fDistance/(double)(this->iPlanesCount - 1);	
+		double dZStep = (double (this->fDistance))/(double (this->iPlanesCount - 1));	
 		for (int i=0 ; i < this->iPlanesCount ; i++)
 		{
 			double ZCoord = -(this->fDistance/2) + dZStep * (double)i;        
@@ -295,8 +327,8 @@ void FFGLVolumeRendering::CreateArrayData(FFGLTexCoords maxCoords)
 			this->VertexData[4*i + 1].x = -1;
 			this->VertexData[4*i + 1].y = 1;
 			this->VertexData[4*i + 1].z = ZCoord;
-			this->TexcoordData[4*i + 1].s = 0;
-			this->TexcoordData[4*i + 1].t = maxCoords.t;
+			this->TexcoordData[4 * i + 1].s = 0;
+			this->TexcoordData[4 * i + 1].t = maxCoords.t;
 
 
 			//upper right
@@ -311,8 +343,8 @@ void FFGLVolumeRendering::CreateArrayData(FFGLTexCoords maxCoords)
 			this->VertexData[4*i + 3].x = 1;
 			this->VertexData[4*i + 3].y = -1;
 			this->VertexData[4*i + 3].z = ZCoord;
-			this->TexcoordData[4*i + 3].s = maxCoords.s;
-			this->TexcoordData[4*i + 3].t = 0;
+			this->TexcoordData[4 * i + 3].s = maxCoords.s;
+			this->TexcoordData[4 * i + 3].t = 0;
 		};
 
 	}
@@ -350,39 +382,44 @@ void FFGLVolumeRendering::CreateArrayData(FFGLTexCoords maxCoords)
 		this->TexcoordData[3].t = 0;
 	};
 
-	
+
 
 }
 
 DWORD FFGLVolumeRendering::GetParameter(DWORD dwIndex)
 {
 	DWORD dwRet;
-	
+
 	switch (dwIndex) {
 
-	case FFPARAM_VALUE1_SCALE  :
+	case FFPARAM_VALUE2_SCALE  :
 		//sizeof(DWORD) must == sizeof(float)
 		*((float *)(unsigned)(&dwRet)) = this->fScaleValue  ;
 		return dwRet;
 
-	case FFPARAM_VALUE2_RX:
+	case FFPARAM_VALUE3_RX:
 		//sizeof(DWORD) must == sizeof(float)
 		*((float *)(unsigned)(&dwRet)) = this->fXAngle;		
 		return dwRet;
 
-	case FFPARAM_VALUE3_RY:
+	case FFPARAM_VALUE4_RY:
 		//sizeof(DWORD) must == sizeof(float)
 		*((float *)(unsigned)(&dwRet)) = this->fYAngle;
 		return dwRet;
 
-	case FFPARAM_VALUE4_DISTANCE:
+	case FFPARAM_VALUE5_DISTANCE:
 		//sizeof(DWORD) must == sizeof(float)
 		*((float *)(unsigned)(&dwRet)) = this->fDistance;
 		return dwRet;
 
-	case FFPARAM_VALUE5_PCOUNT:
+	case FFPARAM_VALUE6_PCOUNT:
 		//sizeof(DWORD) must == sizeof(float)
 		*((float *)(unsigned)(&dwRet)) = this->fPlanesCount;
+		return dwRet;
+
+	case FFPARAM_VALUE7_FOVY:
+		//sizeof(DWORD) must == sizeof(float)
+		*((float *)(unsigned)(&dwRet)) = this->fAngle;
 		return dwRet;
 
 	default:
@@ -393,47 +430,49 @@ DWORD FFGLVolumeRendering::GetParameter(DWORD dwIndex)
 DWORD FFGLVolumeRendering::SetParameter(const SetParameterStruct* pParam)
 {
 
-	if (pParam != NULL) {
-
-		
-		float fNeuValue = *((float *)(unsigned)&(pParam->NewParameterValue));
+	if (pParam != NULL) 
+	{
+		float fNewValue = *((float *)(unsigned)&(pParam->NewParameterValue));
 
 		switch (pParam->ParameterNumber) {
 
-		case FFPARAM_VALUE1_SCALE:
-			//sizeof(DWORD) == sizeof(float)
-			this->fScaleValue = fNeuValue;
-			break;
-		
-		case FFPARAM_VALUE2_RX:
-			//sizeof(DWORD) must == sizeof(float)		
-			this->fXAngle = fNeuValue;
+		case FFPARAM_VALUE1_IS_PERSPECTIVE:
+			this->fIsPerspective = fNewValue;
 			break;
 
-		case FFPARAM_VALUE3_RY:
-			//sizeof(DWORD) must == sizeof(float)
-			//this->fYAngle = *((float *)(unsigned)&(pParam->NewParameterValue));
-			this->fYAngle = fNeuValue;
+		case FFPARAM_VALUE2_SCALE:			
+			this->fScaleValue = fNewValue;
 			break;
 
-		case FFPARAM_VALUE4_DISTANCE:
-			//sizeof(DWORD) must == sizeof(float)
-			//this->fDistance = *((float *)(unsigned)&(pParam->NewParameterValue));
-			if (this->fDistance != fNeuValue)
+		case FFPARAM_VALUE3_RX:					
+			this->fXAngle = fNewValue;
+			break;
+
+		case FFPARAM_VALUE4_RY:			
+			this->fYAngle = fNewValue;
+			break;
+
+		case FFPARAM_VALUE5_DISTANCE:
+			if (this->fDistance != fNewValue)
 			{ 
-				this->fDistance = fNeuValue;
-				this->isListRecalculationNeeded = true;
+				this->fDistance = fNewValue;
+				this->isGeometryRebuildNeeded  = true;
 			};
 			break;
 
-		case FFPARAM_VALUE5_PCOUNT:
-			//sizeof(DWORD) must == sizeof(float)
-			//this->fPlanesCount = *((float *)(unsigned)&(pParam->NewParameterValue));
-			if (this->fPlanesCount != fNeuValue)
+		case FFPARAM_VALUE6_PCOUNT:
+			if (this->fPlanesCount != fNewValue)
 			{ 
-				this->fPlanesCount = fNeuValue;
-				this->isListRecalculationNeeded = true;
+				this->fPlanesCount = fNewValue;
+				this->iPlanesCount = 100.0f * this->fPlanesCount;
+				if (this->iPlanesCount == 0)
+					this->iPlanesCount = 1;
+				this->isGeometryRebuildNeeded = true;
 			};
+			break;
+
+		case FFPARAM_VALUE7_FOVY:			
+			this->fAngle = fNewValue;
 			break;
 
 		default:
