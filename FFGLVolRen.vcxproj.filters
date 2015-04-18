@@ -13,9 +13,6 @@
       <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
       <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav</Extensions>
     </Filter>
-    <Filter Include="Документация">
-      <UniqueIdentifier>{70932f10-fc06-4ee9-8f9b-6054fc7cb524}</UniqueIdentifier>
-    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="FFGL\FFGL.cpp">
@@ -68,10 +65,5 @@
     <ClInclude Include="FFGLVolumes.h">
       <Filter>Заголовочные файлы</Filter>
     </ClInclude>
-  </ItemGroup>
-  <ItemGroup>
-    <None Include="vertex_buffer_object.txt">
-      <Filter>Документация</Filter>
-    </None>
   </ItemGroup>
 </Project>

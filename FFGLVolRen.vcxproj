@@ -111,9 +111,6 @@
     <ClInclude Include="FFGL\FFGLPluginManager.h" />
     <ClInclude Include="FFGLVolumes.h" />
   </ItemGroup>
-  <ItemGroup>
-    <None Include="vertex_buffer_object.txt" />
-  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>
