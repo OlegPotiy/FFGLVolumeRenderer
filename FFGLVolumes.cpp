@@ -2,7 +2,7 @@
 #include "FFGL/FFGLLib.h"
 #include "FFGLVolumes.h"
 #include <gl\GLU.h>
-//#define USE_VBO
+#define USE_VBO
 
 // Parameters
 #define FFPARAM_VALUE1_IS_PERSPECTIVE (0)
@@ -30,6 +30,8 @@ static CFFGLPluginInfo PluginInfo (
 	"by Oleg Potiy" // About
 	);
 
+static const int MaxPlanes = 200;
+
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 //  Constructor and destructor
@@ -47,8 +49,8 @@ FFGLVolumeRendering::FFGLVolumeRendering():CFreeFrameGLPlugin()
 	this->fScaleValue = 1.0f;
 
 	this->fDistance = 1.0f;
-	this->fPlanesCount = 1.0f;
-	this->iPlanesCount = 100.0f * this->fPlanesCount;
+	this->fPlanesCount = 0.5f;
+	this->iPlanesCount = (float)MaxPlanes * this->fPlanesCount;
 
 	this->fAngle = 0.5f;
 	this->fScaleValue = 1.0f;
@@ -252,26 +254,25 @@ DWORD FFGLVolumeRendering::ProcessOpenGL(ProcessOpenGLStruct *pGL)
 
 
 	}
-	else
-	{
-		m_extensions.glBindBufferARB(GL_ARRAY_BUFFER_ARB, vboId);
+	
+	m_extensions.glBindBufferARB(GL_ARRAY_BUFFER_ARB, vboId);
 
-		glEnableClientState(GL_VERTEX_ARRAY);
-		glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+	glEnableClientState(GL_VERTEX_ARRAY);
+	glEnableClientState(GL_TEXTURE_COORD_ARRAY);
 
-		vertextDataSize = 4 * this->iPlanesCount * sizeof(GLVertexTriplet);
-		texcoordDataSize = 4 * this->iPlanesCount * sizeof(GLTexcoords);
+	vertextDataSize = 4 * this->iPlanesCount * sizeof(GLVertexTriplet);
+	texcoordDataSize = 4 * this->iPlanesCount * sizeof(GLTexcoords);
 
-		glVertexPointer(3, GL_FLOAT, 0, 0);
-		glTexCoordPointer(2, GL_FLOAT, 0, (void*)(vertextDataSize));
+	glVertexPointer(3, GL_FLOAT, 0, 0);
+	glTexCoordPointer(2, GL_FLOAT, 0, (void*)(vertextDataSize));
 
-		glDrawArrays(GL_QUADS, 0, this->iPlanesCount*4);
+	glDrawArrays(GL_QUADS, 0, this->iPlanesCount*4);
 
-		glDisableClientState(GL_VERTEX_ARRAY);
-		glDisableClientState(GL_TEXTURE_COORD_ARRAY);
+	glDisableClientState(GL_VERTEX_ARRAY);
+	glDisableClientState(GL_TEXTURE_COORD_ARRAY);
 
-		m_extensions.glBindBufferARB(GL_ARRAY_BUFFER_ARB, 0);
-	}
+	m_extensions.glBindBufferARB(GL_ARRAY_BUFFER_ARB, 0);
+	
 #endif
 
 	
@@ -464,7 +465,7 @@ DWORD FFGLVolumeRendering::SetParameter(const SetParameterStruct* pParam)
 			if (this->fPlanesCount != fNewValue)
 			{ 
 				this->fPlanesCount = fNewValue;
-				this->iPlanesCount = 100.0f * this->fPlanesCount;
+				this->iPlanesCount = (float)MaxPlanes * this->fPlanesCount;
 				if (this->iPlanesCount == 0)
 					this->iPlanesCount = 1;
 				this->isGeometryRebuildNeeded = true;
